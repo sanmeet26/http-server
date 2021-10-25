@@ -1,0 +1,53 @@
+
+Portion read from RFC:
+
+1) Intro, Terminologies
+2) Notations - Augmented BNF, basic rules
+3) HTTP - version, uri, general syntax
+4) HTTP message - body, length, general header fields
+5) Request - request line, method, uri, headers
+6) Response - status codes, headers 
+
+
+
+
+Design (OOP):
+
+class tcpserver:
+	server, port
+	
+	def start:
+		create socket
+		bind
+		accept connection
+		handle request
+		.
+		.
+		give response
+		.
+		.
+		close connection
+	
+	
+class httprequest:
+	method, uri, 
+	parse request line
+	
+
+class httpserver(tcpserver):
+	headers = dict()
+	status_codes = dict()
+	
+	handle_methods:
+		GET_method:
+			check uri
+			open file 
+			read
+			make response (consider status codes)
+			send response
+		POST_method:
+		PUT_method:
+		DELETE_method:
+		
+	
+
