@@ -54,11 +54,14 @@ while True:
 	request = client_socket.recv(2048).decode()
 	print(request)
 	
-	# make and send the response
+	# make the response
 	if request == "":
 		continue
+
+	# call function for handling request
 	response = handle_request(request)
 	
+	# send created response to client
 	client_socket.send(response.encode())
 	
 	# close client connection
