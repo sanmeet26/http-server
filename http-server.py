@@ -55,6 +55,8 @@ while True:
 	print(request)
 	
 	# make the response
+
+	# if request is empty string, then go to next iteration (i.e. look for next client)
 	if request == "":
 		continue
 
