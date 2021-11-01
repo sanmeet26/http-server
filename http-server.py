@@ -1,7 +1,5 @@
 '''
-
 	Implementation of simple HTTP server
-
 '''
 
 from socket import *
@@ -43,6 +41,7 @@ SERVER_PORT = 12001
 server_socket = socket(AF_INET, SOCK_STREAM)
 server_socket.bind((SERVER_NAME, SERVER_PORT))
 
+# server keeps on listening
 server_socket.listen(4)
 print("Listening on port %s ..."%SERVER_PORT)
 
