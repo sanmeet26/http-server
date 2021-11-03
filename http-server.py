@@ -16,6 +16,46 @@ MAX_CONNECTIONS = 100
 # status codes
 status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found', '501': 'Not Implemented'}
 
+
+def get_segregated_data(client_socket=None, request=None):
+
+    # parameters in request
+    request_method = None
+    request_path = None
+    request_http_version = None
+    request_headers = dict()
+
+    # separating out request + request headers from request body
+    request_line_headers = request.split('\r\n\r\n')[0]
+    # request body (if present) is separated by a blank line
+    request_body = request.split('\r\n\r\n')[1:]
+
+    request_line_headers = request_line_headers.split('\r\n')
+    # print(request)
+
+    # list of contents of request line (first line of request)
+    request_line = request_line_headers[0].split()
+
+    # checking the length of request line
+    if len(request_line) == 3:
+        request_method, request_path, request_http_version = request_line
+    elif len(request_line) == 2:
+        request_method, request_path = request_line
+    elif len(request_line) == 1:
+        request_method = request_line[0]
+
+    for data in request_line_headers[1:]:
+        key, value = data.split(':', 1)
+        request_headers[key.strip()] = value.strip()
+    
+    # print(request_method)
+    # print(request_path)
+    # print(request_http_version)
+    # print(request_headers)
+    # print(request_body)
+    return request_method, request_path, request_http_version, request_headers, request_body
+
+
 def manage_request(client_request):
     # parse the request
     request_line = client_request.split('\n')[0].split()
@@ -84,6 +124,26 @@ def client_thread(client_socket):
     # create the response
     response = manage_request(request)
 
+    # parse the request and get segregated data (methods, version, headers, request-body, etc)
+    request_method, request_path, request_http_version, request_headers, request_body = get_segregated_data(client_socket, request)
+    
+    '''
+        response, isvalid = validate_request(...)
+
+        if isvalid:
+            if request_method == "GET":
+                manage_GET()
+            elif request_method == "HEAD":
+                manage_HEAD()
+            elif request_method == "POST":
+                manage_POST()
+            elif request_method == "PUT":
+                manage_PUT()
+            elif request_method == "DELETE":
+                manage_DELETE()
+        
+
+    '''
     # send the encoded response to client
     client_socket.send(response.encode())
 
