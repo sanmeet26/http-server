@@ -6,16 +6,32 @@ import socket
 import sys
 import os
 import threading
+import datetime
+from email.utils import formatdate
 
 # request methods
-valid_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
+implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
 
 # maximum allowed connections
 MAX_CONNECTIONS = 100
 
 # status codes
-status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found', '501': 'Not Implemented'}
+status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
 
+STATUS_CODE = None
+
+# minimal response headers
+RESPONSE_HEADERS = {
+    "Date": "",
+    "Connection": "close",
+    "Server": "Spax/0.0.1 (Ubuntu)",
+    "Content-length":"0",
+    "Content-Language": "en-US"
+}
+
+# get local/GMT time
+def get_datetime(local_time=False):
+    return str(formatdate(timeval=None, localtime=local_time, usegmt=True))
 
 def get_segregated_data(client_socket=None, request=None):
 
@@ -55,6 +71,38 @@ def get_segregated_data(client_socket=None, request=None):
     # print(request_body)
     return request_method, request_path, request_http_version, request_headers, request_body
 
+def examine_request(request_method, request_http_version, request_headers):
+    global STATUS_CODE, RESPONSE_HEADERS
+    response = ""
+    file_content = ""
+
+    RESPONSE_HEADERS["Date"] = get_datetime()
+
+    if request_method not in implemented_methods:
+        STATUS_CODE = 501
+        http_version = "HTTP/1.1"
+        response = http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+
+        for key, value in RESPONSE_HEADERS.items():
+            response += key + ": " + value + "\r\n"
+        return response, False
+    if request_http_version != "HTTP/1.1":
+        STATUS_CODE = 505
+        response = "HTTP/1.1" + " " + STATUS_CODE + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+        file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>505 HTTP Version Not Supported</h1><p>The HTTP version in the request is not supported</p><p>Supported version : HTTP/1.1</p></body></html>"
+
+        RESPONSE_HEADERS["Content-length"] = len(file_content)
+        RESPONSE_HEADERS["Content-Type"] = "text/html"
+
+        for key, value in RESPONSE_HEADERS.items():
+            response += key + ": " + value + "\r\n"
+
+        if request_method != "HEAD":
+            response += "\r\n" + file_content
+        return response, False
+         
+
+    return response, True
 
 def manage_request(client_request):
     # parse the request
@@ -76,7 +124,7 @@ def manage_request(client_request):
         request_method = request_line[0]
 
     # method validation
-    if request_method.upper() not in valid_methods:
+    if request_method.upper() not in implemented_methods:
         print("Method is not valid")
         sys.exit(1)
 
@@ -110,6 +158,22 @@ def manage_request(client_request):
     # return the created response    
     return response
 
+def manage_GET(request_http_version, request_headers, request_path):
+    pass
+
+def manage_HEAD(request_http_version, request_headers, request_path):
+    pass
+
+def manage_POST(request_http_version, request_headers, request_path, request_body):
+    pass
+
+def manage_PUT(request_http_version, request_headers, request_path, request_body):
+    pass
+
+def manage_DELETE(request_http_version, request_headers, request_path, request_body):
+    pass
+
+
 def client_thread(client_socket):
 
     # recieve the request from client and decode it
@@ -121,29 +185,29 @@ def client_thread(client_socket):
 
     print(request)
 
-    # create the response
-    response = manage_request(request)
-
     # parse the request and get segregated data (methods, version, headers, request-body, etc)
     request_method, request_path, request_http_version, request_headers, request_body = get_segregated_data(client_socket, request)
-    
-    '''
-        response, isvalid = validate_request(...)
 
-        if isvalid:
-            if request_method == "GET":
-                manage_GET()
-            elif request_method == "HEAD":
-                manage_HEAD()
-            elif request_method == "POST":
-                manage_POST()
-            elif request_method == "PUT":
-                manage_PUT()
-            elif request_method == "DELETE":
-                manage_DELETE()
-        
+    # check/examine request for validation
+    response, is_valid = examine_request(request_method, request_http_version, request_headers)
 
-    '''
+    if is_valid:
+        if request_method == "GET":
+            response = manage_GET(request_http_version, request_headers, request_path)
+        elif request_method == "HEAD":
+            response = manage_HEAD(request_http_version, request_headers, request_path)
+        elif request_method == "POST":
+            response = manage_POST(request_http_version, request_headers, request_path, request_body)
+        elif request_method == "PUT":
+            response = manage_PUT(request_http_version, request_headers, request_path, request_body)
+        elif request_method == "DELETE":
+            response = manage_DELETE(request_http_version, request_headers, request_path, request_body)
+
+    #####################
+    # create the response
+    response = manage_request(request)
+    #####################
+
     # send the encoded response to client
     client_socket.send(response.encode())
 
