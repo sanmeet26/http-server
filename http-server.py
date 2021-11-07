@@ -86,9 +86,9 @@ def examine_request(request_method, request_http_version, request_headers):
         for key, value in RESPONSE_HEADERS.items():
             response += key + ": " + value + "\r\n"
         return response, False
-    if request_http_version != "HTTP/1.1":
+    elif request_http_version != "HTTP/1.1":
         STATUS_CODE = 505
-        response = "HTTP/1.1" + " " + STATUS_CODE + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+        response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>505 HTTP Version Not Supported</h1><p>The HTTP version in the request is not supported</p><p>Supported version : HTTP/1.1</p></body></html>"
 
         RESPONSE_HEADERS["Content-length"] = len(file_content)
@@ -100,7 +100,20 @@ def examine_request(request_method, request_http_version, request_headers):
         if request_method != "HEAD":
             response += "\r\n" + file_content
         return response, False
-         
+    elif "Host" not in request_headers:
+        STATUS_CODE = 400
+        response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+        file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>400 Bad Request</h1><p>HTTP server detected bad request</p></body></html>"
+
+        RESPONSE_HEADERS["Content-length"] = len(file_content)
+        RESPONSE_HEADERS["Content-Type"] = "text/html"
+
+        for key, value in RESPONSE_HEADERS.items():
+            response += key + ": " + value + "\r\n"
+
+        if request_method != "HEAD":
+            response += "\r\n" + file_content
+        return response, False
 
     return response, True
 
@@ -159,7 +172,30 @@ def manage_request(client_request):
     return response
 
 def manage_GET(request_http_version, request_headers, request_path):
-    pass
+    # create response with headers and content body
+    file_name = request_path
+    # check file_name and create response accordingly
+    if file_name == '/':
+        fp = open("htdocs/index.html", 'r')
+        content = fp.read()
+        fp.close()
+        response = request_http_version + " 200 " + status_codes['200'] + "\nServer: myServer\n\n" + content
+    else:
+        try:
+            # if client any how requests for notfound.html, then raise exception
+            if file_name == "/notfound.html":
+                raise Exception
+            fp = open("htdocs"+file_name, 'r')
+            content = fp.read()
+            fp.close()
+            response = request_http_version + " 200 " + status_codes['200'] + "\nServer: myServer\n\n" + content
+        except:
+            fp = open("htdocs/notfound.html", 'r')
+            content = fp.read()
+            fp.close()
+            response = request_http_version + " 404 " + status_codes['404'] + "\nServer: myServer\n\n" + content
+
+    return response
 
 def manage_HEAD(request_http_version, request_headers, request_path):
     pass
@@ -205,7 +241,7 @@ def client_thread(client_socket):
 
     #####################
     # create the response
-    response = manage_request(request)
+    # response = manage_request(request)
     #####################
 
     # send the encoded response to client
