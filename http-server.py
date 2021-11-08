@@ -8,17 +8,20 @@ import os
 import threading
 import datetime
 from email.utils import formatdate
+import configparser
 
 # request methods
 implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
 
-# maximum allowed connections
-MAX_CONNECTIONS = 100
+# # maximum allowed connections
+# MAX_CONNECTIONS = 100
 
 # status codes
 status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
 
 STATUS_CODE = None
+
+CONFIG_DATA = None
 
 # minimal response headers
 RESPONSE_HEADERS = {
@@ -253,6 +256,8 @@ def client_thread(client_socket):
 
 
 def start_server(server_socket):
+    global CONFIG_DATA
+    MAX_CONNECTIONS = int(CONFIG_DATA['MAX_CONNECTIONS_ALLOWED']['CONNECTIONS'])
     while True:
         try:
             if threading.active_count() <= MAX_CONNECTIONS:
@@ -278,13 +283,17 @@ def start_server(server_socket):
         
 
 def create_server_socket():
+    global CONFIG_DATA
     # create a TCP socket
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     # assign server name and server port
     # here it is localhost
-    SERVER_NAME = ''
-    SERVER_PORT = 12001
+    # SERVER_NAME = ''
+    # SERVER_PORT = 12001
+
+    SERVER_NAME = str(CONFIG_DATA['DEFAULT_VALS']['NAME'])
+    SERVER_PORT = int(CONFIG_DATA['DEFAULT_VALS']['PORT'])
 
     try:
         # set the condition for port reusability whenever server is restarted
@@ -308,8 +317,18 @@ def create_server_socket():
     # return the server socket created
     return server_socket
 
+def read_config_file():
+    global CONFIG_DATA
+    # declare configparser object
+    CONFIG_DATA = configparser.ConfigParser()
+    # read the config file
+    CONFIG_DATA.read('config.ini')
+
 
 if __name__ == "__main__":
+
+    # read config file
+    read_config_file()
 
     # make the server socket
     server_socket = create_server_socket()
