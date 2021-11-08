@@ -6,6 +6,7 @@ import socket
 import sys
 import os
 import threading
+import time
 import datetime
 from email.utils import formatdate
 import configparser
@@ -35,6 +36,25 @@ RESPONSE_HEADERS = {
 # get local/GMT time
 def get_datetime(local_time=False):
     return str(formatdate(timeval=None, localtime=local_time, usegmt=True))
+
+# get current GMT time (in HTTP format - rfc1123)
+def get_current_GMTtime():
+    return time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime())
+
+# get current local time (in HTTP format)
+def get_current_localtime():
+    return time.strftime('%a, %d %b %Y %H:%M:%S +0530', time.localtime())
+
+# get last modification time of file with given path
+def get_last_modified_time(path=""):
+    try:
+        # For Unix, the epoch is January 1, 1970, 00:00:00 (UTC)
+        seconds_since_epoch = os.path.getmtime(path)
+        return time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(seconds_since_epoch))
+    except OSError:
+        # print("Path '%s' does not exists or is inaccessible" % path)
+        # sys.exit()
+        return "Thu, 01 Jan 1970 00:00:00 GMT"
 
 def get_segregated_data(client_socket=None, request=None):
 
@@ -79,7 +99,8 @@ def examine_request(request_method, request_http_version, request_headers):
     response = ""
     file_content = ""
 
-    RESPONSE_HEADERS["Date"] = get_datetime()
+    # RESPONSE_HEADERS["Date"] = get_datetime()
+    RESPONSE_HEADERS["Date"] = get_current_GMTtime()
 
     if request_method not in implemented_methods:
         STATUS_CODE = 501
@@ -173,6 +194,58 @@ def manage_request(client_request):
 
     # return the created response    
     return response
+
+def get_file_path(request_path=""):
+    global CONFIG_DATA, STATUS_CODE
+
+    # try to get document root, otherwise return notfound.html file path
+    try:
+        document_root = CONFIG_DATA['DOCUMENT_ROOT']['PATH']
+    except:
+        STATUS_CODE = 404
+        return "htdocs/notfound.html"
+
+    # if request file path is notfound.html then set STATUS_CODE to 404 and return notfound.html file path
+    if request_path == "/notfound.html":
+        STATUS_CODE = 404
+        return "htdocs/notfound.html"
+
+    valid_file_path = ""
+
+    # check request path for dir, file and make valid_file_path
+    if os.path.isdir(document_root + request_path):
+        if request_path.endswith('/'):
+            valid_file_path = document_root + request_path + "index.html"
+        else:
+            valid_file_path = document_root + '/' + "index.html"
+    elif os.path.isfile(document_root + request_path):
+        valid_file_path = document_root + request_path
+    else:
+        # if requested file/dir not found, then control will come here
+        STATUS_CODE = 404
+        valid_file_path = document_root + "/notfound.html"
+    return valid_file_path
+
+# returns validpath, file extension and last modification time
+def get_file_details(request_path=""):
+    global STATUS_CODE, CONFIG_DATA
+    file_extension = ""
+
+    # get file extension
+    if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH']):
+        file_extension = request_path.split('.')[-1]
+    else:
+        file_extension = "html"
+
+    # get valid file path 
+    valid_request_path = get_file_path(request_path)
+    # get last modification time of file
+    last_mod_time = get_last_modified_time(valid_request_path)
+    
+    #return details
+    return file_extension, valid_request_path, last_mod_time
+
+
 
 def manage_GET(request_http_version, request_headers, request_path):
     # create response with headers and content body
