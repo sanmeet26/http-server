@@ -18,7 +18,7 @@ implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
 # MAX_CONNECTIONS = 100
 
 # status codes
-status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
+status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found','405': 'Method Not Allowed', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
 
 STATUS_CODE = None
 
@@ -32,6 +32,36 @@ RESPONSE_HEADERS = {
     "Content-length":"0",
     "Content-Language": "en-US"
 }
+
+def get_content_type(extension=None):
+    # switch case table for mime types
+    content_types = {
+        "txt": "text/plain",
+        "html": "text/html",
+        "php": "text/html",
+        "pdf": "application/pdf",
+        "css": "text/css",
+        "csv": "text/csv",
+        "apng": "image/apng",
+        "bmp": "image/bmp",
+        "gif": "image/gif",
+        "ico": "image/x-icon",
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+        "json": "application/json",
+        "js": "application/javascript",
+        "bin": "application/octet-stream",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "mpeg": "video/mpeg",
+        "webm": "video/webm",
+        "3gp": "video/3gpp"
+    }
+    # if nothing gets matched return text plain
+    return content_types.get(extension, "text/plain") + "; charset=ISO-8859-1"
 
 # get local/GMT time
 def get_datetime(local_time=False):
@@ -98,25 +128,30 @@ def examine_request(request_method, request_http_version, request_headers):
     global STATUS_CODE, RESPONSE_HEADERS
     response = ""
     file_content = ""
+    file_extension = "html"
 
     # RESPONSE_HEADERS["Date"] = get_datetime()
     RESPONSE_HEADERS["Date"] = get_current_GMTtime()
 
     if request_method not in implemented_methods:
-        STATUS_CODE = 501
+        # STATUS_CODE = 501
+        STATUS_CODE = 405
         http_version = "HTTP/1.1"
         response = http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
-
+        RESPONSE_HEADERS["Date"] = get_current_GMTtime()
+        RESPONSE_HEADERS["Allow"] = "GET, HEAD, PUT, POST, DELETE"
         for key, value in RESPONSE_HEADERS.items():
             response += key + ": " + value + "\r\n"
         return response, False
+
     elif request_http_version != "HTTP/1.1":
         STATUS_CODE = 505
         response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>505 HTTP Version Not Supported</h1><p>The HTTP version in the request is not supported</p><p>Supported version : HTTP/1.1</p></body></html>"
 
         RESPONSE_HEADERS["Content-length"] = len(file_content)
-        RESPONSE_HEADERS["Content-Type"] = "text/html"
+        # RESPONSE_HEADERS["Content-Type"] = "text/html"
+        RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
 
         for key, value in RESPONSE_HEADERS.items():
             response += key + ": " + value + "\r\n"
@@ -130,7 +165,7 @@ def examine_request(request_method, request_http_version, request_headers):
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>400 Bad Request</h1><p>HTTP server detected bad request</p></body></html>"
 
         RESPONSE_HEADERS["Content-length"] = len(file_content)
-        RESPONSE_HEADERS["Content-Type"] = "text/html"
+        RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
 
         for key, value in RESPONSE_HEADERS.items():
             response += key + ": " + value + "\r\n"
@@ -246,14 +281,14 @@ def get_file_details(request_path=""):
     return file_extension, valid_request_path, last_mod_time
 
 # make forbidden response with status code
-def get_forbidden_response(http_version="", request_headers={}):
+def get_forbidden_response(http_version="", request_headers={}, file_extension="html"):
     global STATUS_CODE
     STATUS_CODE = 403
 
     file_content = "<!DOCTYPE html><html><head><title>Error</title></head><body><h1>403 Forbidden</h1><p>The server understood the request, but is refusing to fulfill it. (restricted resource access)<p></body></html>"
 
-    response = http_version + str(STATUS_CODE) + " " + status_codes(STATUS_CODE) + "\r\n"
-    RESPONSE_HEADERS["Content-Type"] = "text/html"
+    response = http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+    RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
     RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
 
     for key, value in RESPONSE_HEADERS.items():
@@ -269,8 +304,8 @@ def manage_GET(request_http_version, request_headers, request_path):
 
     # check whether file has read permission or not
     if not os.access(valid_request_path, os.R_OK):
-        # if not then send forbidden
-        response, msgbody_size = get_forbidden_response(request_http_version, request_headers)
+        # if not then send forbidden response
+        response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
         response_body_size = msgbody_size
 
     # create response with headers and content body
