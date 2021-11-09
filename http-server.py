@@ -245,9 +245,34 @@ def get_file_details(request_path=""):
     #return details
     return file_extension, valid_request_path, last_mod_time
 
+# make forbidden response with status code
+def get_forbidden_response(http_version="", request_headers={}):
+    global STATUS_CODE
+    STATUS_CODE = 403
+
+    file_content = "<!DOCTYPE html><html><head><title>Error</title></head><body><h1>403 Forbidden</h1><p>The server understood the request, but is refusing to fulfill it. (restricted resource access)<p></body></html>"
+
+    response = http_version + str(STATUS_CODE) + " " + status_codes(STATUS_CODE) + "\r\n"
+    RESPONSE_HEADERS["Content-Type"] = "text/html"
+    RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+
+    for key, value in RESPONSE_HEADERS.items():
+        response += str(key) + ": " + str(value) + "\r\n"
+    response += "\r\n" + file_content
+    # return response and body size
+    return response, RESPONSE_HEADERS["Content-Length"]
 
 
 def manage_GET(request_http_version, request_headers, request_path):
+    # get required file data
+    file_extension, valid_request_path, last_mod_time = get_file_details(request_path)
+
+    # check whether file has read permission or not
+    if not os.access(valid_request_path, os.R_OK):
+        # if not then send forbidden
+        response, msgbody_size = get_forbidden_response(request_http_version, request_headers)
+        response_body_size = msgbody_size
+
     # create response with headers and content body
     file_name = request_path
     # check file_name and create response accordingly
