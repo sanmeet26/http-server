@@ -351,7 +351,7 @@ def manage_GET(request_http_version, request_headers, request_path):
 
             for key, value in RESPONSE_HEADERS.items():
                 response += str(key) + ": " + str(value) + "\r\n"
-                response += "\r\n" + file_content
+            response += "\r\n" + file_content
 
     return response
 
