@@ -29,7 +29,7 @@ RESPONSE_HEADERS = {
     "Date": "",
     "Connection": "close",
     "Server": "Spax/0.0.1 (Ubuntu)",
-    "Content-length":"0",
+    "Content-Length":"0",
     "Content-Language": "en-US"
 }
 
@@ -138,7 +138,7 @@ def examine_request(request_method, request_http_version, request_headers):
         STATUS_CODE = 405
         http_version = "HTTP/1.1"
         response = http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
-        RESPONSE_HEADERS["Date"] = get_current_GMTtime()
+        # RESPONSE_HEADERS["Date"] = get_current_GMTtime()
         RESPONSE_HEADERS["Allow"] = "GET, HEAD, PUT, POST, DELETE"
         for key, value in RESPONSE_HEADERS.items():
             response += key + ": " + value + "\r\n"
@@ -149,7 +149,7 @@ def examine_request(request_method, request_http_version, request_headers):
         response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>505 HTTP Version Not Supported</h1><p>The HTTP version in the request is not supported</p><p>Supported version : HTTP/1.1</p></body></html>"
 
-        RESPONSE_HEADERS["Content-length"] = len(file_content)
+        RESPONSE_HEADERS["Content-Length"] = len(file_content)
         # RESPONSE_HEADERS["Content-Type"] = "text/html"
         RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
 
@@ -164,7 +164,7 @@ def examine_request(request_method, request_http_version, request_headers):
         response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>400 Bad Request</h1><p>HTTP server detected bad request</p></body></html>"
 
-        RESPONSE_HEADERS["Content-length"] = len(file_content)
+        RESPONSE_HEADERS["Content-Length"] = len(file_content)
         RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
 
         for key, value in RESPONSE_HEADERS.items():
@@ -299,39 +299,87 @@ def get_forbidden_response(http_version="", request_headers={}, file_extension="
 
 
 def manage_GET(request_http_version, request_headers, request_path):
+    global STATUS_CODE
+    response = ""
+    file_content = ""
+    STATUS_CODE = 200
+
     # get required file data
     file_extension, valid_request_path, last_mod_time = get_file_details(request_path)
+
+    # set the Date header
+    RESPONSE_HEADERS["Date"] = get_current_GMTtime()
 
     # check whether file has read permission or not
     if not os.access(valid_request_path, os.R_OK):
         # if not then send forbidden response
         response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
         response_body_size = msgbody_size
-
-    # create response with headers and content body
-    file_name = request_path
-    # check file_name and create response accordingly
-    if file_name == '/':
-        fp = open("htdocs/index.html", 'r')
-        content = fp.read()
-        fp.close()
-        response = request_http_version + " 200 " + status_codes['200'] + "\nServer: myServer\n\n" + content
     else:
-        try:
-            # if client any how requests for notfound.html, then raise exception
-            if file_name == "/notfound.html":
-                raise Exception
-            fp = open("htdocs"+file_name, 'r')
-            content = fp.read()
-            fp.close()
-            response = request_http_version + " 200 " + status_codes['200'] + "\nServer: myServer\n\n" + content
-        except:
-            fp = open("htdocs/notfound.html", 'r')
-            content = fp.read()
-            fp.close()
-            response = request_http_version + " 404 " + status_codes['404'] + "\nServer: myServer\n\n" + content
+        # check for conditional GET requests
+        if "If-Modified-Since" in request_headers:
+            # time.strptime() parse a string representing a time according to a format. 
+            # The return value is a struct_time as returned by gmtime() or localtime().
+            time1 = time.strptime(request_headers["If-Modified-Since"].strip(), "%a, %d %b %Y %H:%M:%S GMT")
+            time2 = time.strptime(last_mod_time.strip(), "%a, %d %b %Y %H:%M:%S GMT")
+        
+        # if last modification time of file is less than "If-Modified-Since" time then respond with 304 status code
+        if STATUS_CODE != 404 and "If-Modified-Since" in request_headers and time1 > time2:
+            STATUS_CODE = 304
+            response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+            if "Content-Type" in RESPONSE_HEADERS:
+                del RESPONSE_HEADERS["Content-Type"]
+            if "Content-Length" in RESPONSE_HEADERS:
+                del RESPONSE_HEADERS["Content-Length"]
+            if "Last-Modified" in RESPONSE_HEADERS:
+                del RESPONSE_HEADERS["Last-Modified"]
+
+            for key, value in RESPONSE_HEADERS.items():
+                response += str(key) + ": " + str(value) + "\r\n"
+
+        # if without conditional GET
+        else:
+            # open and read the file
+            fp = open(valid_request_path, "r")
+            file_content = fp.read()
+
+            # create the response
+            response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+            RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+            RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+            RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+
+            for key, value in RESPONSE_HEADERS.items():
+                response += str(key) + ": " + str(value) + "\r\n"
+                response += "\r\n" + file_content
 
     return response
+
+
+    # # create response with headers and content body
+    # file_name = request_path
+    # # check file_name and create response accordingly
+    # if file_name == '/':
+    #     fp = open("htdocs/index.html", 'r')
+    #     content = fp.read()
+    #     fp.close()
+    #     response = request_http_version + " 200 " + status_codes['200'] + "\nServer: myServer\n\n" + content
+    # else:
+    #     try:
+    #         # if client any how requests for notfound.html, then raise exception
+    #         if file_name == "/notfound.html":
+    #             raise Exception
+    #         fp = open("htdocs"+file_name, 'r')
+    #         content = fp.read()
+    #         fp.close()
+    #         response = request_http_version + " 200 " + status_codes['200'] + "\nServer: myServer\n\n" + content
+    #     except:
+    #         fp = open("htdocs/notfound.html", 'r')
+    #         content = fp.read()
+    #         fp.close()
+    #         response = request_http_version + " 404 " + status_codes['404'] + "\nServer: myServer\n\n" + content
+
+    # return response
 
 def manage_HEAD(request_http_version, request_headers, request_path):
     pass
