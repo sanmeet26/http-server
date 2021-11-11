@@ -20,6 +20,9 @@ implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
 # status codes
 status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found','405': 'Method Not Allowed', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
 
+# image file extensions
+image_files = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico"]
+
 STATUS_CODE = None
 
 CONFIG_DATA = None
@@ -142,6 +145,8 @@ def examine_request(request_method, request_http_version, request_headers):
         RESPONSE_HEADERS["Allow"] = "GET, HEAD, PUT, POST, DELETE"
         for key, value in RESPONSE_HEADERS.items():
             response += key + ": " + value + "\r\n"
+
+        response = response.encode()
         return response, False
 
     elif request_http_version != "HTTP/1.1":
@@ -158,7 +163,10 @@ def examine_request(request_method, request_http_version, request_headers):
 
         if request_method != "HEAD":
             response += "\r\n" + file_content
+
+        response = response.encode()
         return response, False
+
     elif "Host" not in request_headers:
         STATUS_CODE = 400
         response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
@@ -172,8 +180,10 @@ def examine_request(request_method, request_http_version, request_headers):
 
         if request_method != "HEAD":
             response += "\r\n" + file_content
+        response = response.encode()
         return response, False
 
+    response = response.encode()
     return response, True
 
 def manage_request(client_request):
@@ -228,6 +238,7 @@ def manage_request(client_request):
     print(response)
 
     # return the created response    
+    response = response.encode()
     return response
 
 def get_file_path(request_path=""):
@@ -267,7 +278,7 @@ def get_file_details(request_path=""):
     file_extension = ""
 
     # get file extension
-    if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH']):
+    if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + request_path):
         file_extension = request_path.split('.')[-1]
     else:
         file_extension = "html"
@@ -304,54 +315,106 @@ def manage_GET(request_http_version, request_headers, request_path):
     file_content = ""
     STATUS_CODE = 200
 
-    # get required file data
-    file_extension, valid_request_path, last_mod_time = get_file_details(request_path)
-
     # set the Date header
     RESPONSE_HEADERS["Date"] = get_current_GMTtime()
 
-    # check whether file has read permission or not
-    if not os.access(valid_request_path, os.R_OK):
-        # if not then send forbidden response
-        response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
-        response_body_size = msgbody_size
-    else:
-        # check for conditional GET requests
-        if "If-Modified-Since" in request_headers:
-            # time.strptime() parse a string representing a time according to a format. 
-            # The return value is a struct_time as returned by gmtime() or localtime().
-            time1 = time.strptime(request_headers["If-Modified-Since"].strip(), "%a, %d %b %Y %H:%M:%S GMT")
-            time2 = time.strptime(last_mod_time.strip(), "%a, %d %b %Y %H:%M:%S GMT")
-        
-        # if last modification time of file is less than "If-Modified-Since" time then respond with 304 status code
-        if STATUS_CODE != 404 and "If-Modified-Since" in request_headers and time1 > time2:
-            STATUS_CODE = 304
-            response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
-            if "Content-Type" in RESPONSE_HEADERS:
-                del RESPONSE_HEADERS["Content-Type"]
-            if "Content-Length" in RESPONSE_HEADERS:
-                del RESPONSE_HEADERS["Content-Length"]
-            if "Last-Modified" in RESPONSE_HEADERS:
-                del RESPONSE_HEADERS["Last-Modified"]
+    # get required file data
+    file_extension, valid_request_path, last_mod_time = get_file_details(request_path)
 
-            for key, value in RESPONSE_HEADERS.items():
-                response += str(key) + ": " + str(value) + "\r\n"
-
-        # if without conditional GET
+    # if requested file is image file
+    if file_extension in image_files:
+        # check whether file has read permission or not
+        if not os.access(valid_request_path, os.R_OK):
+            # if not then send forbidden response
+            response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
+            response = response.encode()
+            response_body_size = msgbody_size
         else:
-            # open and read the file
-            fp = open(valid_request_path, "r")
-            file_content = fp.read()
+            # check for conditional GET requests
+            if "If-Modified-Since" in request_headers:
+                # time.strptime() parse a string representing a time according to a format. 
+                # The return value is a struct_time as returned by gmtime() or localtime().
+                time1 = time.strptime(request_headers["If-Modified-Since"].strip(), "%a, %d %b %Y %H:%M:%S GMT")
+                time2 = time.strptime(last_mod_time.strip(), "%a, %d %b %Y %H:%M:%S GMT")
+            
+            # if last modification time of file is less than "If-Modified-Since" time then respond with 304 status code
+            if STATUS_CODE != 404 and "If-Modified-Since" in request_headers and time1 > time2:
+                STATUS_CODE = 304
+                response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+                if "Content-Type" in RESPONSE_HEADERS:
+                    del RESPONSE_HEADERS["Content-Type"]
+                if "Content-Length" in RESPONSE_HEADERS:
+                    del RESPONSE_HEADERS["Content-Length"]
+                if "Last-Modified" in RESPONSE_HEADERS:
+                    del RESPONSE_HEADERS["Last-Modified"]
 
-            # create the response
-            response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
-            RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
-            RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
-            RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+                for key, value in RESPONSE_HEADERS.items():
+                    response += str(key) + ": " + str(value) + "\r\n"
+                response = response.encode()
 
-            for key, value in RESPONSE_HEADERS.items():
-                response += str(key) + ": " + str(value) + "\r\n"
-            response += "\r\n" + file_content
+            # if without conditional GET
+            else:
+                # open and read the file
+                fp = open(valid_request_path, "rb")
+                file_content = fp.read()
+
+                # create the response
+                response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+                RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+                RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+                RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+
+                for key, value in RESPONSE_HEADERS.items():
+                    response += str(key) + ": " + str(value) + "\r\n"
+                response += "\r\n"
+                response = response.encode()
+                response += file_content
+    
+    # if requested file is not image file
+    else:
+        # check whether file has read permission or not
+        if not os.access(valid_request_path, os.R_OK):
+            # if not then send forbidden response
+            response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
+            response_body_size = msgbody_size
+        else:
+            # check for conditional GET requests
+            if "If-Modified-Since" in request_headers:
+                # time.strptime() parse a string representing a time according to a format. 
+                # The return value is a struct_time as returned by gmtime() or localtime().
+                time1 = time.strptime(request_headers["If-Modified-Since"].strip(), "%a, %d %b %Y %H:%M:%S GMT")
+                time2 = time.strptime(last_mod_time.strip(), "%a, %d %b %Y %H:%M:%S GMT")
+            
+            # if last modification time of file is less than "If-Modified-Since" time then respond with 304 status code
+            if STATUS_CODE != 404 and "If-Modified-Since" in request_headers and time1 > time2:
+                STATUS_CODE = 304
+                response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+                if "Content-Type" in RESPONSE_HEADERS:
+                    del RESPONSE_HEADERS["Content-Type"]
+                if "Content-Length" in RESPONSE_HEADERS:
+                    del RESPONSE_HEADERS["Content-Length"]
+                if "Last-Modified" in RESPONSE_HEADERS:
+                    del RESPONSE_HEADERS["Last-Modified"]
+
+                for key, value in RESPONSE_HEADERS.items():
+                    response += str(key) + ": " + str(value) + "\r\n"
+
+            # if without conditional GET
+            else:
+                # open and read the file
+                fp = open(valid_request_path, "r")
+                file_content = fp.read()
+
+                # create the response
+                response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+                RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+                RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+                RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+
+                for key, value in RESPONSE_HEADERS.items():
+                    response += str(key) + ": " + str(value) + "\r\n"
+                response += "\r\n" + file_content
+        response = response.encode()
 
     return response
 
@@ -379,6 +442,7 @@ def manage_GET(request_http_version, request_headers, request_path):
     #         fp.close()
     #         response = request_http_version + " 404 " + status_codes['404'] + "\nServer: myServer\n\n" + content
 
+    # response = response.encode()
     # return response
 
 def manage_HEAD(request_http_version, request_headers, request_path):
@@ -429,7 +493,7 @@ def client_thread(client_socket):
     #####################
 
     # send the encoded response to client
-    client_socket.send(response.encode())
+    client_socket.send(response)
 
     # close the connection with the client
     client_socket.close()
