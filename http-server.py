@@ -310,7 +310,7 @@ def get_forbidden_response(http_version="", request_headers={}, file_extension="
 
 
 def manage_GET(request_http_version, request_headers, request_path):
-    global STATUS_CODE
+    global STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes
     response = ""
     file_content = ""
     STATUS_CODE = 200
@@ -446,7 +446,41 @@ def manage_GET(request_http_version, request_headers, request_path):
     # return response
 
 def manage_HEAD(request_http_version, request_headers, request_path):
-    pass
+    global STATUS_CODE, RESPONSE_HEADERS, status_codes
+    response = ""
+    file_extension = ""
+
+    STATUS_CODE = 200
+
+    # set the Date header
+    RESPONSE_HEADERS["Date"] = get_current_GMTtime()
+
+    # get required file data
+    file_extension, valid_request_path, last_mod_time = get_file_details(request_path)
+
+    # set Content-Type and Last-Modified headers
+    RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+    RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+
+    # check file access permission
+    if not os.access(valid_request_path, os.R_OK):
+        STATUS_CODE = 403
+        # make for forbidden response file content
+        file_content = "<!DOCTYPE html><html><head><title>Error</title></head><body><h1>403 Forbidden</h1><p>The server understood the request, but is refusing to fulfill it. (restricted resource access)<p></body></html>"
+        RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+    else:
+        # if not forbidden then set Content-Length of requested resource 
+        RESPONSE_HEADERS["Content-Length"] = str(os.path.getsize(valid_request_path))
+    
+    # make response and return
+    response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+
+    for key, value in RESPONSE_HEADERS.items():
+        response += str(key) + ": " + str(value) + "\r\n"
+    response += "\r\n"
+    response = response.encode()
+
+    return response    
 
 def manage_POST(request_http_version, request_headers, request_path, request_body):
     pass
