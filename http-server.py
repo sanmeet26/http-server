@@ -166,7 +166,7 @@ def get_segregated_data(client_socket=None, request=None):
         if "Content-Type" in request_headers:
             if "application/x-www-form-urlencoded" in request_headers["Content-Type"]:
                 # handle application form body ahead of header count
-                tempBody = parsed_data[total_headers + 1].split("&")
+                tempBody = parsed_data[total_headers + 2].split("&")
                 for tbody in tempBody:
                     key, value = tbody.split("=")
                     # get valid value after hex decoding
@@ -202,7 +202,7 @@ def get_segregated_data(client_socket=None, request=None):
                                 request_body["filename"] = tkey
                         except Exception as error:
                             print(error)
-                            
+
     return request_method, request_path, request_http_version, request_headers, request_body
 
 def examine_request(request_method, request_http_version, request_headers):
@@ -560,8 +560,64 @@ def manage_HEAD(request_http_version, request_headers, request_path):
 
     return response
 
-def manage_POST(request_http_version, request_headers, request_path, request_body):
-    pass
+def manage_POST(request_http_version, request_headers, request_path, request_body={}):
+    global CONFIG_DATA, STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes
+
+    response = ""
+    file_extension = "html"
+    # set date and status code
+    RESPONSE_HEADERS["Date"] = get_current_GMTtime()
+    STATUS_CODE = 201
+
+    # response html to be sent after successful POST request
+    file_content = "<!DOCTYPE html><html><head><title>POST Response</title></head><body><h1>POST request succeeded</h1><p>Data recieved<p></body></html>"
+
+    # storing request body of POST request in a file
+    if "filename" in request_body:
+        client_file = request_body["filename"]
+        file_mode = "a"
+        client_file_content = request_body[request_body["filename"]]
+        
+        if str(request_body["filename"]).endswith(tuple(image_files)):
+            file_mode = "wb"
+            client_file_content = client_file_content.encode()
+
+        # checking whether the client folder exist or not. If not then create it
+        if not os.path.isdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
+            os.mkdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
+        # write file in that client folder 
+        fp = open(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'] + "/" + client_file, file_mode)
+        fp.write(client_file_content)
+
+        if request_body["filename"] in request_body:
+            del request_body[request_body["filename"]]
+
+    # keep record of POST request for our server
+    post_data = "POST\n"
+    post_data = "Date: " + RESPONSE_HEADERS["Date"] + "\n" + "POST DATA:\n"
+    for key, value in request_body.items():
+        post_data += "\t" + str(key) + " = " + str(value) + "\n"
+    post_data += "\n\n"
+
+    if not os.path.isdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
+        os.mkdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
+    # write data into POST location
+    fp = open(CONFIG_DATA['CLIENT_DATA']['POST_FILE'], "a")
+    fp.write(post_data)
+
+    # create the response
+    response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+    RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+    RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+
+    for key, value in RESPONSE_HEADERS.items():
+        response += key + ": " + value + "\r\n"
+    response += "\r\n"
+    response += file_content
+    response = response.encode()
+        
+    return response
+
 
 def manage_PUT(request_http_version, request_headers, request_path, request_body):
     pass
