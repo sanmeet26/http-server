@@ -89,6 +89,25 @@ def get_last_modified_time(path=""):
         # sys.exit()
         return "Thu, 01 Jan 1970 00:00:00 GMT"
 
+def examine_request_body_values(value=None):
+    i = 0
+    decoded_value = ""
+    while i < len(value):
+        # if '%' is encountered then get next two characters (hex), convert them into bytes, decode them and store into decoded_value
+        if value[i] == "%":
+            p_enc = value[i+1:i+3]
+            bytesdata = bytes.fromhex(p_enc)
+            decoded_value += bytesdata.decode("ASCII")
+            i += 2
+        # if '+' is encountered then add a space into decoded_value
+        elif value[i] == "+":
+            decoded_value += " "
+        # otherwise just add alphanumeric character as it is
+        else:
+            decoded_value += value[i]
+        i += 1
+    return decoded_value
+
 def get_segregated_data(client_socket=None, request=None):
 
     # parameters in request
@@ -96,11 +115,13 @@ def get_segregated_data(client_socket=None, request=None):
     request_path = None
     request_http_version = None
     request_headers = dict()
+    request_body = dict()
+    total_headers = 0
 
     # separating out request + request headers from request body
     request_line_headers = request.split('\r\n\r\n')[0]
     # request body (if present) is separated by a blank line
-    request_body = request.split('\r\n\r\n')[1:]
+    
 
     request_line_headers = request_line_headers.split('\r\n')
     # print(request)
@@ -117,6 +138,7 @@ def get_segregated_data(client_socket=None, request=None):
         request_method = request_line[0]
 
     for data in request_line_headers[1:]:
+        total_headers += 1
         key, value = data.split(':', 1)
         request_headers[key.strip()] = value.strip()
     
@@ -125,6 +147,62 @@ def get_segregated_data(client_socket=None, request=None):
     # print(request_http_version)
     # print(request_headers)
     # print(request_body)
+    parsed_data = request.split("\r\n")
+    if request_method == "POST" or request_method == "PUT":
+        original_length = int(request_headers["Content-Length"])
+        recieved_body = request.split('\r\n\r\n')[1:]
+        recieved_length = len("\r\n\r\n".join(recieved_body))
+
+        if original_length > 1024 or (original_length - recieved_length) > 0:
+            extra_data = original_length - recieved_length
+            
+            while extra_data > 0:
+                new_data = client_socket.recv(1024).decode('ISO-8859-1')
+                request = str(request) + str(new_data)
+                extra_data -= len(new_data)
+    
+            parsed_data = request.split("\r\n")
+    
+        if "Content-Type" in request_headers:
+            if "application/x-www-form-urlencoded" in request_headers["Content-Type"]:
+                # handle application form body ahead of header count
+                tempBody = parsed_data[total_headers + 1].split("&")
+                for tbody in tempBody:
+                    key, value = tbody.split("=")
+                    # get valid value after hex decoding
+                    request_body[key] = examine_request_body_values(value)
+            elif "text/plain" in request_headers["Content-Type"]:
+                # handle text plain body ahead of header count
+                req_body = parsed_data[total_headers + 1:]
+                index = 0
+                for body in req_body:
+                    index += 1
+                    try:
+                        key, value = body.split("=")
+                        request_body[key] = value
+                    except:
+                        request_body["body" + str(index)] = body
+            elif "multipart/form-data" in request_headers["Content-Type"]:
+                # handle multipart form body ahead of header count
+                reqBody = parsed_data[total_headers + 1:]
+                for i in range(1, len(reqBody) - 4):
+                    if ";" in reqBody[i]:
+                        try:
+                            tbody = reqBody[i].split(";")
+                            if len(tbody) == 2:
+                                tkey = tbody[1].split("name=")[1].strip("\"")
+                                request_body[tkey] = reqBody[i + 2]
+                            elif len(tbody) == 3:
+                                tkey = tbody[2].split("filename=")[
+                                    1].strip("\"")
+                                request_body[tkey] = str(reqBody[i + 3])
+                                if str(tkey).endswith(tuple(image_files)):
+                                    request_body[tkey] += "\r\n" + \
+                                        str(reqBody[i + 4])
+                                request_body["filename"] = tkey
+                        except Exception as error:
+                            print(error)
+                            
     return request_method, request_path, request_http_version, request_headers, request_body
 
 def examine_request(request_method, request_http_version, request_headers):
@@ -480,7 +558,7 @@ def manage_HEAD(request_http_version, request_headers, request_path):
     response += "\r\n"
     response = response.encode()
 
-    return response    
+    return response
 
 def manage_POST(request_http_version, request_headers, request_path, request_body):
     pass
