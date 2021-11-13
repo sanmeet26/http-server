@@ -10,6 +10,7 @@ import time
 import datetime
 from email.utils import formatdate
 import configparser
+from shutil import rmtree
 
 # request methods
 implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
@@ -625,7 +626,53 @@ def manage_PUT(request_http_version, request_headers, request_path, request_body
     pass
 
 def manage_DELETE(request_http_version, request_headers, request_path, request_body):
-    pass
+    global STATUS_CODE, status_codes, RESPONSE_HEADERS, CONFIG_DATA
+
+    # make file content to send on success
+    file_content = "<!DOCTYPE html><html><head><title>DELETE Response</title></head><body><h1>Specified Resource Deleted</h1></body></html>"
+    file_extension = "html"
+    response = ""
+
+    # if request_path is a file
+    if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path) and request_path != "/notfound.html":
+        # check for write access, if yes then remove/delete file
+        if os.access(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path, os.W_OK):
+            STATUS_CODE = 200
+            os.remove(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path)
+        # otherwise make forbidden response
+        else:
+            response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
+            response = response.encode()
+            return response
+    # if request_path is a direcory
+    elif os.path.isdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path):
+        # check for write access, if yes then delete directory using shutil.rmtree()
+        if os.access(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path, os.W_OK):
+            STATUS_CODE = 200
+            rmtree(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path)
+        # otherwise make forbidden response
+        else:
+            response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
+            response = response.encode()
+            return response
+    # otherwise resource is not found
+    else:
+        STATUS_CODE = 404
+        fp = open(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+"/notfound.html")
+        file_content = fp.read()
+        fp.close()
+    
+    # create the response and return it
+    response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
+    RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+    RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+
+    for key, value in RESPONSE_HEADERS.items():
+        response += key + ": " + value + "\r\n"
+    response += "\r\n" + file_content
+
+    response = response.encode()
+    return response
 
 
 def client_thread(client_socket):
