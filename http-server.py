@@ -575,7 +575,7 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
     # storing request body of POST request in a file
     if "filename" in request_body:
         client_file = request_body["filename"]
-        file_mode = "a"
+        file_mode = "w"
         client_file_content = request_body[request_body["filename"]]
         
         if str(request_body["filename"]).endswith(tuple(image_files)):
@@ -583,10 +583,10 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
             client_file_content = client_file_content.encode()
 
         # checking whether the client folder exist or not. If not then create it
-        if not os.path.isdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
-            os.mkdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
+        if not os.path.isdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
+            os.mkdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
         # write file in that client folder 
-        fp = open(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'] + "/" + client_file, file_mode)
+        fp = open(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY'] + "/" + client_file, file_mode)
         fp.write(client_file_content)
 
         if request_body["filename"] in request_body:
@@ -599,16 +599,18 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
         post_data += "\t" + str(key) + " = " + str(value) + "\n"
     post_data += "\n\n"
 
-    if not os.path.isdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
-        os.mkdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
+    # if not os.path.isdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
+    #     os.mkdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
     # write data into POST location
     fp = open(CONFIG_DATA['CLIENT_DATA']['POST_FILE'], "a")
     fp.write(post_data)
+    fp.close()
 
     # create the response
     response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
     RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
     RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+    RESPONSE_HEADERS["Location"] = "http://localhost:" + CONFIG_DATA['DEFAULT_VALS']['PORT'] + "/Client_Folder/" + request_body["filename"]
 
     for key, value in RESPONSE_HEADERS.items():
         response += key + ": " + value + "\r\n"
