@@ -1,0 +1,35 @@
+[
+    {
+        "method": "GET",
+        "url": "/"
+    },
+    {
+        "method": "HEAD",
+        "url": "/form.html"
+    },
+    {
+        "method": "DELETE",
+        "url": "/Client_Folder/sample1.txt"
+    },
+    {
+        "method": "PUT",
+        "url": "/Client_Folder/something.txt",
+        "data": {
+            "name": "name",
+            "age": "20",
+            "author": "author"
+        }
+    },
+    {
+        "method": "POST",
+        "url": "/",
+        "data": {
+            "name": "sanmeet"
+        },
+        "file": {
+            "name": "thisfile.txt",
+            "path": "/home/sanmeet/Desktop/myfile.txt",
+            "fileType": "text"
+        }
+    }
+]
