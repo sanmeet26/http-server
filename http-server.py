@@ -11,6 +11,8 @@ import datetime
 from email.utils import formatdate
 import configparser
 from shutil import rmtree
+import json
+import uuid
 
 # request methods
 implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
@@ -25,7 +27,7 @@ status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Co
 image_files = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico"]
 
 STATUS_CODE = None
-
+CLIENT_IP = None
 CONFIG_DATA = None
 
 # minimal response headers
@@ -265,6 +267,47 @@ def examine_request(request_method, request_http_version, request_headers):
     response = response.encode()
     return response, True
 
+
+# function to set and get cookie value
+def set_cookie(client_IP=None):
+    global CONFIG_DATA
+    cookie_file = CONFIG_DATA['COOKIE']['FILE']
+    
+    # check whether cookie file is present or not. If not, then create a new json file
+    if not os.path.isfile(cookie_file):
+        fp = open(cookie_file, "w")
+        # write into cookie file using json.dump()
+        # indent attribute is for indentation purpose 
+        json.dump([], fp, indent=4)
+        fp.close()
+    
+    cookie_data = []
+    # read the cookie file using json.load() and get the data
+    fp = open(cookie_file, "r")
+    cookie_data = json.load(fp)
+    fp.close()
+
+    # check whether this cookie entry is already present in cookie file. If yes then return it
+    for cookie in cookie_data:
+        if cookie["client_IP"] == str(client_IP) and "cookie" in cookie:
+            return "session_id=" + cookie['cookie'] + "; SameSite=Strict"
+    
+    # otherwise create a new cookie for new user using uuid.uuid4()
+    new_cookie = uuid.uuid4()
+    new_entry = {
+        'client_IP': str(client_IP),
+        'cookie': str(new_cookie)
+    }
+    cookie_data.append(new_entry)
+
+    # store this new created cookie
+    fp = open(cookie_file, "w")
+    json.dump(cookie_data, fp, indent=4)
+    fp.close()
+
+    return "session_id=" + new_entry['cookie'] + "; SameSite=Strict"
+
+
 def manage_request(client_request):
     # parse the request
     request_line = client_request.split('\n')[0].split()
@@ -372,7 +415,7 @@ def get_file_details(request_path=""):
 
 # make forbidden response with status code
 def get_forbidden_response(http_version="", request_headers={}, file_extension="html"):
-    global STATUS_CODE
+    global STATUS_CODE, CLIENT_IP
     STATUS_CODE = 403
 
     file_content = "<!DOCTYPE html><html><head><title>Error</title></head><body><h1>403 Forbidden</h1><p>The server understood the request, but is refusing to fulfill it. (restricted resource access)<p></body></html>"
@@ -380,6 +423,9 @@ def get_forbidden_response(http_version="", request_headers={}, file_extension="
     response = http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
     RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
     RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+
+    # set the cookie for this client
+    RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
 
     for key, value in RESPONSE_HEADERS.items():
         response += str(key) + ": " + str(value) + "\r\n"
@@ -389,7 +435,7 @@ def get_forbidden_response(http_version="", request_headers={}, file_extension="
 
 
 def manage_GET(request_http_version, request_headers, request_path):
-    global STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes
+    global STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes, CLIENT_IP
     response = ""
     file_content = ""
     STATUS_CODE = 200
@@ -427,6 +473,9 @@ def manage_GET(request_http_version, request_headers, request_path):
                 if "Last-Modified" in RESPONSE_HEADERS:
                     del RESPONSE_HEADERS["Last-Modified"]
 
+                # set the cookie for this client
+                RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
+
                 for key, value in RESPONSE_HEADERS.items():
                     response += str(key) + ": " + str(value) + "\r\n"
                 response = response.encode()
@@ -442,6 +491,8 @@ def manage_GET(request_http_version, request_headers, request_path):
                 RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
                 RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
                 RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+                # set the cookie for this client
+                RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
 
                 for key, value in RESPONSE_HEADERS.items():
                     response += str(key) + ": " + str(value) + "\r\n"
@@ -474,6 +525,9 @@ def manage_GET(request_http_version, request_headers, request_path):
                     del RESPONSE_HEADERS["Content-Length"]
                 if "Last-Modified" in RESPONSE_HEADERS:
                     del RESPONSE_HEADERS["Last-Modified"]
+                
+                # set the cookie for this client
+                RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
 
                 for key, value in RESPONSE_HEADERS.items():
                     response += str(key) + ": " + str(value) + "\r\n"
@@ -489,6 +543,9 @@ def manage_GET(request_http_version, request_headers, request_path):
                 RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
                 RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
                 RESPONSE_HEADERS["Last-Modified"] = last_mod_time
+
+                # set the cookie for this client
+                RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
 
                 for key, value in RESPONSE_HEADERS.items():
                     response += str(key) + ": " + str(value) + "\r\n"
@@ -525,7 +582,7 @@ def manage_GET(request_http_version, request_headers, request_path):
     # return response
 
 def manage_HEAD(request_http_version, request_headers, request_path):
-    global STATUS_CODE, RESPONSE_HEADERS, status_codes
+    global STATUS_CODE, RESPONSE_HEADERS, status_codes, CLIENT_IP
     response = ""
     file_extension = ""
 
@@ -551,6 +608,9 @@ def manage_HEAD(request_http_version, request_headers, request_path):
         # if not forbidden then set Content-Length of requested resource 
         RESPONSE_HEADERS["Content-Length"] = str(os.path.getsize(valid_request_path))
     
+    # set the cookie for this client
+    RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
+
     # make response and return
     response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
 
@@ -562,7 +622,7 @@ def manage_HEAD(request_http_version, request_headers, request_path):
     return response
 
 def manage_POST(request_http_version, request_headers, request_path, request_body={}):
-    global CONFIG_DATA, STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes
+    global CONFIG_DATA, STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes, CLIENT_IP
 
     response = ""
     file_extension = "html"
@@ -613,6 +673,9 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
     RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
     RESPONSE_HEADERS["Location"] = "http://localhost:" + CONFIG_DATA['DEFAULT_VALS']['PORT'] + "/Client_Folder/" + request_body["filename"]
 
+    # set the cookie for this client
+    RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
+
     for key, value in RESPONSE_HEADERS.items():
         response += key + ": " + value + "\r\n"
     response += "\r\n"
@@ -626,7 +689,7 @@ def manage_PUT(request_http_version, request_headers, request_path, request_body
     pass
 
 def manage_DELETE(request_http_version, request_headers, request_path, request_body):
-    global STATUS_CODE, status_codes, RESPONSE_HEADERS, CONFIG_DATA
+    global STATUS_CODE, status_codes, RESPONSE_HEADERS, CONFIG_DATA, CLIENT_IP
 
     # make file content to send on success
     file_content = "<!DOCTYPE html><html><head><title>DELETE Response</title></head><body><h1>Specified Resource Deleted</h1></body></html>"
@@ -666,6 +729,9 @@ def manage_DELETE(request_http_version, request_headers, request_path, request_b
     response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
     RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
     RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+
+    # set the cookie for this client
+    RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
 
     for key, value in RESPONSE_HEADERS.items():
         response += key + ": " + value + "\r\n"
@@ -718,7 +784,7 @@ def client_thread(client_socket):
 
 
 def start_server(server_socket):
-    global CONFIG_DATA
+    global CONFIG_DATA, CLIENT_IP
     MAX_CONNECTIONS = int(CONFIG_DATA['MAX_CONNECTIONS_ALLOWED']['CONNECTIONS'])
     while True:
         try:
@@ -726,6 +792,8 @@ def start_server(server_socket):
                 # initiate the connection with the client
                 client_socket, client_address = server_socket.accept()
                 # print("Connected to", client_address)
+
+                CLIENT_IP = str(client_address[0])
 
                 # create different thread for different client
                 client_th = threading.Thread(target=client_thread, args=(client_socket,))
