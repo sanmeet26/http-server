@@ -12,6 +12,7 @@ from email.utils import formatdate
 import configparser
 from shutil import rmtree
 import json
+from types import resolve_bases
 import uuid
 
 # request methods
@@ -21,7 +22,7 @@ implemented_methods = ['GET', 'HEAD', 'POST', 'PUT', 'DELETE']
 # MAX_CONNECTIONS = 100
 
 # status codes
-status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found','405': 'Method Not Allowed', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
+status_codes = {'100': 'Continue', '200' : 'OK', '201': 'Created', '204': 'No Content', '301': 'Moved Permanently', '304': 'Not Modified', '400': 'Bad Request', '404': 'Not Found','405': 'Method Not Allowed', '411': 'Length Required', '415':'Unsupported Media Type', '501': 'Not Implemented', '505': 'HTTP Version Not Supported'}
 
 # image file extensions
 image_files = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico"]
@@ -92,23 +93,111 @@ def get_last_modified_time(path=""):
         # sys.exit()
         return "Thu, 01 Jan 1970 00:00:00 GMT"
 
+
+
+def clear_logs(access=True, error=True):
+    global CONFIG_DATA
+    try:
+        access_log_path = CONFIG_DATA['LOGS']['DIRECTORY'] + '/' + CONFIG_DATA['LOGS']['ACCESS']
+        error_log_path = CONFIG_DATA['LOGS']['DIRECTORY'] + '/' + CONFIG_DATA['LOGS']['ERROR']
+        if access:
+            # check if file is present
+            # if present clear if size exceeds limit
+            if(os.path.isfile(access_log_path) and os.path.getsize(access_log_path) > 10**9):
+                os.unlink(access_log_path)
+        if error:
+            # check if file is present
+            # if present clear if size exceeds limit
+            if(os.path.isfile(error_log_path) and os.path.getsize(error_log_path) > 10**9):
+                os.unlink(error_log_path)
+    except Exception as err:
+        create_error_log("error", err)
+
+
+def create_error_log(code="", err=""):
+    global CONFIG_DATA, CLIENT_IP
+    # clear error log for flooded data
+    clear_logs(access=False, error=True)
+
+    # follow defined log format
+
+    date_time = get_current_localtime()
+    p_id = str(os.getpid())
+    t_id = str(threading.current_thread().ident)
+    log = "[" + date_time + "]" + " "
+    log += "[core: " + code + "]" + " "
+    log += "[pid " + p_id + ":tid " + t_id + "]" + " "
+    if CLIENT_IP != None:
+        log += "[client " + CLIENT_IP + "]" + " "
+    log += str(err)
+    log += "\n"
+    try:
+        if not os.path.isdir(CONFIG_DATA['LOGS']['DIRECTORY']):
+            os.mkdir(CONFIG_DATA['LOGS']['DIRECTORY'])
+        fp = open(CONFIG_DATA['LOGS']['DIRECTORY'] + '/' + CONFIG_DATA['LOGS']['ERROR'], "a")
+        fp.write(log)
+        fp.close()
+    except:
+        fp = open("error.log", "a")
+        fp.write(log)
+        fp.close()
+
+
+def create_access_log(request_method="", request_path="", request_http_version="", request_headers={}, response_body_size="-"):
+    global STATUS_CODE, CONFIG_DATA, CLIENT_IP
+    # clear access log for flooded data
+    clear_logs(access=True, error=False)
+    date_time = get_current_localtime()
+
+    # follow defined log format
+
+    if CLIENT_IP != None:
+        log = CLIENT_IP + " "
+    else:
+        log = "- "
+    log += "[" + date_time + "]" + " "
+    log += "\"" + request_method + " " + request_path + " " + request_http_version + "\"" + " "
+    log += str(STATUS_CODE) + " "
+    log += str(response_body_size) + " "
+    if "Referer" in request_headers:
+        log += "\"" + request_headers["Referer"] + "\"" + " "
+    else:
+        log += "\"-\"" + " "
+    if "User-Agent" in request_headers:
+        log += "\"" + request_headers["User-Agent"] + "\""
+    else:
+        log += "\"-\"" + " "
+    log += "\n"
+    try:
+        if not os.path.isdir(CONFIG_DATA['LOGS']['DIRECTORY']):
+            os.mkdir(CONFIG_DATA['LOGS']['DIRECTORY'])
+        fp = open(CONFIG_DATA['LOGS']['DIRECTORY'] + '/' + CONFIG_DATA['LOGS']['ACCESS'], "a")
+        fp.write(log)
+        fp.close()
+    except Exception as err:
+        create_error_log("error", err)
+
+
 def examine_request_body_values(value=None):
     i = 0
     decoded_value = ""
     while i < len(value):
-        # if '%' is encountered then get next two characters (hex), convert them into bytes, decode them and store into decoded_value
-        if value[i] == "%":
-            p_enc = value[i+1:i+3]
-            bytesdata = bytes.fromhex(p_enc)
-            decoded_value += bytesdata.decode("ASCII")
-            i += 2
-        # if '+' is encountered then add a space into decoded_value
-        elif value[i] == "+":
-            decoded_value += " "
-        # otherwise just add alphanumeric character as it is
-        else:
-            decoded_value += value[i]
-        i += 1
+        try:
+            # if '%' is encountered then get next two characters (hex), convert them into bytes, decode them and store into decoded_value
+            if value[i] == "%":
+                p_enc = value[i+1:i+3]
+                bytesdata = bytes.fromhex(p_enc)
+                decoded_value += bytesdata.decode("ASCII")
+                i += 2
+            # if '+' is encountered then add a space into decoded_value
+            elif value[i] == "+":
+                decoded_value += " "
+            # otherwise just add alphanumeric character as it is
+            else:
+                decoded_value += value[i]
+            i += 1
+        except Exception as err:
+            create_error_log("debug", err)
     return decoded_value
 
 def get_segregated_data(client_socket=None, request=None):
@@ -142,8 +231,12 @@ def get_segregated_data(client_socket=None, request=None):
 
     for data in request_line_headers[1:]:
         total_headers += 1
-        key, value = data.split(':', 1)
-        request_headers[key.strip()] = value.strip()
+        try:
+            key, value = data.split(':', 1)
+            request_headers[key.strip()] = value.strip()
+        except Exception as err:
+            create_error_log("debug", err)
+            break
     
     # print(request_method)
     # print(request_path)
@@ -159,11 +252,14 @@ def get_segregated_data(client_socket=None, request=None):
         if original_length > 1024 or (original_length - recieved_length) > 0:
             extra_data = original_length - recieved_length
             
-            while extra_data > 0:
-                new_data = client_socket.recv(1024).decode('ISO-8859-1')
-                request = str(request) + str(new_data)
-                extra_data -= len(new_data)
-    
+            try:
+                while extra_data > 0:
+                    new_data = client_socket.recv(1024).decode('ISO-8859-1')
+                    request = str(request) + str(new_data)
+                    extra_data -= len(new_data)
+            except Exception as err:
+                create_error_log("debug", err)
+
             parsed_data = request.split("\r\n")
     
         if "Content-Type" in request_headers:
@@ -171,9 +267,12 @@ def get_segregated_data(client_socket=None, request=None):
                 # handle application form body ahead of header count
                 tempBody = parsed_data[total_headers + 2].split("&")
                 for tbody in tempBody:
-                    key, value = tbody.split("=")
-                    # get valid value after hex decoding
-                    request_body[key] = examine_request_body_values(value)
+                    try:
+                        key, value = tbody.split("=")
+                        # get valid value after hex decoding
+                        request_body[key] = examine_request_body_values(value)
+                    except Exception as err:
+                        create_error_log("debug", err)
             elif "text/plain" in request_headers["Content-Type"]:
                 # handle text plain body ahead of header count
                 req_body = parsed_data[total_headers + 1:]
@@ -183,7 +282,8 @@ def get_segregated_data(client_socket=None, request=None):
                     try:
                         key, value = body.split("=")
                         request_body[key] = value
-                    except:
+                    except Exception as err:
+                        create_error_log("debug", err)
                         request_body["body" + str(index)] = body
             elif "multipart/form-data" in request_headers["Content-Type"]:
                 # handle multipart form body ahead of header count
@@ -203,8 +303,9 @@ def get_segregated_data(client_socket=None, request=None):
                                     request_body[tkey] += "\r\n" + \
                                         str(reqBody[i + 4])
                                 request_body["filename"] = tkey
-                        except Exception as error:
-                            print(error)
+                        except Exception as err:
+                            create_error_log("debug", err)
+                            # print(err)
 
     return request_method, request_path, request_http_version, request_headers, request_body
 
@@ -228,14 +329,14 @@ def examine_request(request_method, request_http_version, request_headers):
             response += key + ": " + value + "\r\n"
 
         response = response.encode()
-        return response, False
+        return response, RESPONSE_HEADERS["Content-Length"], False
 
     elif request_http_version != "HTTP/1.1":
         STATUS_CODE = 505
         response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>505 HTTP Version Not Supported</h1><p>The HTTP version in the request is not supported</p><p>Supported version : HTTP/1.1</p></body></html>"
 
-        RESPONSE_HEADERS["Content-Length"] = len(file_content)
+        RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
         # RESPONSE_HEADERS["Content-Type"] = "text/html"
         RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
 
@@ -246,14 +347,14 @@ def examine_request(request_method, request_http_version, request_headers):
             response += "\r\n" + file_content
 
         response = response.encode()
-        return response, False
+        return response, RESPONSE_HEADERS["Content-Length"], False
 
-    elif "Host" not in request_headers:
+    elif "Host" not in request_headers or (request_method in ["POST", "PUT"] and "Content-Type" not in request_headers):
         STATUS_CODE = 400
         response = "HTTP/1.1" + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
         file_content = "<!DOCTYPE html><head><title>Error</title></head><body><h1>400 Bad Request</h1><p>HTTP server detected bad request</p></body></html>"
 
-        RESPONSE_HEADERS["Content-Length"] = len(file_content)
+        RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
         RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
 
         for key, value in RESPONSE_HEADERS.items():
@@ -262,50 +363,79 @@ def examine_request(request_method, request_http_version, request_headers):
         if request_method != "HEAD":
             response += "\r\n" + file_content
         response = response.encode()
-        return response, False
-
-    response = response.encode()
-    return response, True
+        return response, RESPONSE_HEADERS["Content-Length"], False
+    elif request_method in ["POST", "PUT"]:
+        if "Content-Length" not in request_headers:
+            STATUS_CODE = 411
+            # response html file
+            file_content = "<!DOCTYPE html><html><head><title>HTTP Response</title></head><body><h1>411 Length Required</h1><p>Server received a request without Content Length</p></body></html>"
+            response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes(str(STATUS_CODE))+ "\r\n"
+            RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+            RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
+            for key, value in RESPONSE_HEADERS.items():
+                response += key + ": " + value + "\r\n"
+            response += "\r\n" + file_content
+            response = response.encode()
+            return response, RESPONSE_HEADERS["Content-Length"], False
+        elif "Content-Type" in request_headers:
+            actual_type = request_headers["Content-Type"].strip().split(";")[0]
+            if actual_type not in ["application/x-www-form-urlencoded", "text/plain", "multipart/form-data"]:
+                STATUS_CODE = 415
+                # response html file
+                finalFile = "<!DOCTYPE html><html><head><title>Delta-Server</title></head><body><h1>415</h1><h2>Server received a request with unsupported media type</h2></body></html>"
+                response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes(str(STATUS_CODE))+ "\r\n"
+                RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
+                RESPONSE_HEADERS["Content-Length"] = str(len(finalFile))
+                for key, value in RESPONSE_HEADERS.items():
+                    response += key + ": " + value + "\r\n"
+                response += "\r\n" + finalFile
+                response = response.encode('')
+                return response, RESPONSE_HEADERS["Content-Length"], False
+    
+    # response = response.encode()
+    return response, "0", True
 
 
 # function to set and get cookie value
 def set_cookie(client_IP=None):
     global CONFIG_DATA
     cookie_file = CONFIG_DATA['COOKIE']['FILE']
-    
-    # check whether cookie file is present or not. If not, then create a new json file
-    if not os.path.isfile(cookie_file):
-        fp = open(cookie_file, "w")
-        # write into cookie file using json.dump()
-        # indent attribute is for indentation purpose 
-        json.dump([], fp, indent=4)
+    try:
+        # check whether cookie file is present or not. If not, then create a new json file
+        if not os.path.isfile(cookie_file):
+            fp = open(cookie_file, "w")
+            # write into cookie file using json.dump()
+            # indent attribute is for indentation purpose 
+            json.dump([], fp, indent=4)
+            fp.close()
+        
+        cookie_data = []
+        # read the cookie file using json.load() and get the data
+        fp = open(cookie_file, "r")
+        cookie_data = json.load(fp)
         fp.close()
-    
-    cookie_data = []
-    # read the cookie file using json.load() and get the data
-    fp = open(cookie_file, "r")
-    cookie_data = json.load(fp)
-    fp.close()
 
-    # check whether this cookie entry is already present in cookie file. If yes then return it
-    for cookie in cookie_data:
-        if cookie["client_IP"] == str(client_IP) and "cookie" in cookie:
-            return "session_id=" + cookie['cookie'] + "; SameSite=Strict"
-    
-    # otherwise create a new cookie for new user using uuid.uuid4()
-    new_cookie = uuid.uuid4()
-    new_entry = {
-        'client_IP': str(client_IP),
-        'cookie': str(new_cookie)
-    }
-    cookie_data.append(new_entry)
+        # check whether this cookie entry is already present in cookie file. If yes then return it
+        for cookie in cookie_data:
+            if cookie["client_IP"] == str(client_IP) and "cookie" in cookie:
+                return "session_id=" + cookie['cookie'] + "; SameSite=Strict"
+        
+        # otherwise create a new cookie for new user using uuid.uuid4()
+        new_cookie = uuid.uuid4()
+        new_entry = {
+            'client_IP': str(client_IP),
+            'cookie': str(new_cookie)
+        }
+        cookie_data.append(new_entry)
 
-    # store this new created cookie
-    fp = open(cookie_file, "w")
-    json.dump(cookie_data, fp, indent=4)
-    fp.close()
+        # store this new created cookie
+        fp = open(cookie_file, "w")
+        json.dump(cookie_data, fp, indent=4)
+        fp.close()
 
-    return "session_id=" + new_entry['cookie'] + "; SameSite=Strict"
+        return "session_id=" + new_entry['cookie'] + "; SameSite=Strict"
+    except Exception as err:
+        create_error_log("debug", err)
 
 
 def manage_request(client_request):
@@ -399,16 +529,26 @@ def get_file_details(request_path=""):
     global STATUS_CODE, CONFIG_DATA
     file_extension = ""
 
-    # get file extension
-    if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + request_path):
-        file_extension = request_path.split('.')[-1]
-    else:
-        file_extension = "html"
+    try:
+        # get file extension
+        if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + request_path):
+            file_extension = request_path.split('.')[-1]
+        else:
+            file_extension = "html"
+    except Exception as err:
+        create_error_log("debug", err)
 
-    # get valid file path 
-    valid_request_path = get_file_path(request_path)
-    # get last modification time of file
-    last_mod_time = get_last_modified_time(valid_request_path)
+    try:
+        # get valid file path 
+        valid_request_path = get_file_path(request_path)
+    except Exception as err:
+        create_error_log("debug", err)
+    
+    try:
+        # get last modification time of file
+        last_mod_time = get_last_modified_time(valid_request_path)
+    except Exception as err:
+        create_error_log("debug", err)
     
     #return details
     return file_extension, valid_request_path, last_mod_time
@@ -438,6 +578,7 @@ def manage_GET(request_http_version, request_headers, request_path):
     global STATUS_CODE, RESPONSE_HEADERS, image_files, status_codes, CLIENT_IP
     response = ""
     file_content = ""
+    response_body_size = ""
     STATUS_CODE = 200
 
     # set the Date header
@@ -482,9 +623,13 @@ def manage_GET(request_http_version, request_headers, request_path):
 
             # if without conditional GET
             else:
-                # open and read the file
-                fp = open(valid_request_path, "rb")
-                file_content = fp.read()
+                try:
+                    # open and read the file
+                    fp = open(valid_request_path, "rb")
+                    file_content = fp.read()
+                    fp.close()
+                except Exception as err:
+                    create_error_log("error", err)
 
                 # create the response
                 response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
@@ -497,6 +642,7 @@ def manage_GET(request_http_version, request_headers, request_path):
                 for key, value in RESPONSE_HEADERS.items():
                     response += str(key) + ": " + str(value) + "\r\n"
                 response += "\r\n"
+                response_body_size = RESPONSE_HEADERS["Content-Length"]
                 response = response.encode()
                 response += file_content
     
@@ -534,9 +680,13 @@ def manage_GET(request_http_version, request_headers, request_path):
 
             # if without conditional GET
             else:
-                # open and read the file
-                fp = open(valid_request_path, "r")
-                file_content = fp.read()
+                try:
+                    # open and read the file
+                    fp = open(valid_request_path, "r")
+                    file_content = fp.read()
+                    fp.close()
+                except Exception as err:
+                    create_error_log("error", err)
 
                 # create the response
                 response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
@@ -550,8 +700,10 @@ def manage_GET(request_http_version, request_headers, request_path):
                 for key, value in RESPONSE_HEADERS.items():
                     response += str(key) + ": " + str(value) + "\r\n"
                 response += "\r\n" + file_content
+                response_body_size = RESPONSE_HEADERS["Content-Length"]
         response = response.encode()
 
+    create_access_log("GET", request_path, request_http_version, request_headers, response_body_size)
     return response
 
 
@@ -585,6 +737,7 @@ def manage_HEAD(request_http_version, request_headers, request_path):
     global STATUS_CODE, RESPONSE_HEADERS, status_codes, CLIENT_IP
     response = ""
     file_extension = ""
+    response_body_size = ""
 
     STATUS_CODE = 200
 
@@ -618,7 +771,8 @@ def manage_HEAD(request_http_version, request_headers, request_path):
         response += str(key) + ": " + str(value) + "\r\n"
     response += "\r\n"
     response = response.encode()
-
+    response_body_size = RESPONSE_HEADERS["Content-Length"]
+    create_access_log("HEAD", request_path, request_http_version, request_headers, response_body_size)
     return response
 
 def manage_POST(request_http_version, request_headers, request_path, request_body={}):
@@ -626,29 +780,33 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
 
     response = ""
     file_extension = "html"
+    response_body_size = ""
     # set date and status code
     RESPONSE_HEADERS["Date"] = get_current_GMTtime()
     STATUS_CODE = 201
 
     # response html to be sent after successful POST request
     file_content = "<!DOCTYPE html><html><head><title>POST Response</title></head><body><h1>POST request succeeded</h1><p>Data recieved<p></body></html>"
-
+    # print(request_body)
     # storing request body of POST request in a file
     if "filename" in request_body:
         client_file = request_body["filename"]
         file_mode = "w"
-        client_file_content = request_body[request_body["filename"]]
-        
-        if str(request_body["filename"]).endswith(tuple(image_files)):
-            file_mode = "wb"
-            client_file_content = client_file_content.encode()
+        try:
+            client_file_content = request_body[request_body["filename"]]
+            
+            if str(request_body["filename"]).endswith(tuple(image_files)):
+                file_mode = "wb"
+                client_file_content = client_file_content.encode()
 
-        # checking whether the client folder exist or not. If not then create it
-        if not os.path.isdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
-            os.mkdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
-        # write file in that client folder 
-        fp = open(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY'] + "/" + client_file, file_mode)
-        fp.write(client_file_content)
+            # checking whether the client folder exist or not. If not then create it
+            if not os.path.isdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
+                os.mkdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
+            # write file in that client folder 
+            fp = open(CONFIG_DATA['DOCUMENT_ROOT']['PATH'] + '/' + CONFIG_DATA['CLIENT_DATA']['DIRECTORY'] + "/" + client_file, file_mode)
+            fp.write(client_file_content)
+        except Exception as err:
+            create_error_log("error", err)
 
         if request_body["filename"] in request_body:
             del request_body[request_body["filename"]]
@@ -662,16 +820,20 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
 
     # if not os.path.isdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY']):
     #     os.mkdir(CONFIG_DATA['CLIENT_DATA']['DIRECTORY'])
-    # write data into POST location
-    fp = open(CONFIG_DATA['CLIENT_DATA']['POST_FILE'], "a")
-    fp.write(post_data)
-    fp.close()
+    try:
+        # write data into POST location
+        fp = open(CONFIG_DATA['CLIENT_DATA']['POST_FILE'], "a")
+        fp.write(post_data)
+        fp.close()
+    except Exception as err:
+        create_error_log("error", err)
 
     # create the response
     response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
     RESPONSE_HEADERS["Content-Type"] = get_content_type(file_extension)
     RESPONSE_HEADERS["Content-Length"] = str(len(file_content))
-    RESPONSE_HEADERS["Location"] = "http://localhost:" + CONFIG_DATA['DEFAULT_VALS']['PORT'] + "/Client_Folder/" + request_body["filename"]
+    if "filename" in request_body:
+        RESPONSE_HEADERS["Location"] = "http://localhost:" + CONFIG_DATA['DEFAULT_VALS']['PORT'] + "/Client_Folder/" + request_body["filename"]
 
     # set the cookie for this client
     RESPONSE_HEADERS["Set-Cookie"] = set_cookie(CLIENT_IP)
@@ -681,6 +843,8 @@ def manage_POST(request_http_version, request_headers, request_path, request_bod
     response += "\r\n"
     response += file_content
     response = response.encode()
+    response_body_size = RESPONSE_HEADERS["Content-Length"]
+    create_access_log("POST", request_path, request_http_version, request_headers, response_body_size)
         
     return response
 
@@ -695,35 +859,43 @@ def manage_DELETE(request_http_version, request_headers, request_path, request_b
     file_content = "<!DOCTYPE html><html><head><title>DELETE Response</title></head><body><h1>Specified Resource Deleted</h1></body></html>"
     file_extension = "html"
     response = ""
+    response_body_size = ""
 
-    # if request_path is a file
-    if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path) and request_path != "/notfound.html":
-        # check for write access, if yes then remove/delete file
-        if os.access(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path, os.W_OK):
-            STATUS_CODE = 200
-            os.remove(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path)
-        # otherwise make forbidden response
+    try:
+        # if request_path is a file
+        if os.path.isfile(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path) and request_path != "/notfound.html":
+            # check for write access, if yes then remove/delete file
+            if os.access(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path, os.W_OK):
+                STATUS_CODE = 200
+                os.remove(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path)
+            # otherwise make forbidden response
+            else:
+                response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
+                response = response.encode()
+                response_body_size = msgbody_size
+                create_access_log("DELETE", request_path, request_http_version, request_headers, response_body_size)
+                return response
+        # if request_path is a direcory
+        elif os.path.isdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path):
+            # check for write access, if yes then delete directory using shutil.rmtree()
+            if os.access(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path, os.W_OK):
+                STATUS_CODE = 200
+                rmtree(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path)
+            # otherwise make forbidden response
+            else:
+                response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
+                response = response.encode()
+                response_body_size = msgbody_size
+                create_access_log("DELETE", request_path, request_http_version, request_headers, response_body_size)
+                return response
+        # otherwise resource is not found
         else:
-            response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
-            response = response.encode()
-            return response
-    # if request_path is a direcory
-    elif os.path.isdir(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path):
-        # check for write access, if yes then delete directory using shutil.rmtree()
-        if os.access(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path, os.W_OK):
-            STATUS_CODE = 200
-            rmtree(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+request_path)
-        # otherwise make forbidden response
-        else:
-            response, msgbody_size = get_forbidden_response(request_http_version, request_headers, file_extension)
-            response = response.encode()
-            return response
-    # otherwise resource is not found
-    else:
-        STATUS_CODE = 404
-        fp = open(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+"/notfound.html")
-        file_content = fp.read()
-        fp.close()
+            STATUS_CODE = 404
+            fp = open(CONFIG_DATA['DOCUMENT_ROOT']['PATH']+"/notfound.html")
+            file_content = fp.read()
+            fp.close()
+    except Exception as err:
+        create_error_log("error", err)
     
     # create the response and return it
     response = request_http_version + " " + str(STATUS_CODE) + " " + status_codes[str(STATUS_CODE)] + "\r\n"
@@ -736,51 +908,59 @@ def manage_DELETE(request_http_version, request_headers, request_path, request_b
     for key, value in RESPONSE_HEADERS.items():
         response += key + ": " + value + "\r\n"
     response += "\r\n" + file_content
-
     response = response.encode()
+
+    response_body_size = RESPONSE_HEADERS["Content-Length"]
+    create_access_log("DELETE", request_path, request_http_version, request_headers, response_body_size)
+
     return response
 
 
 def client_thread(client_socket):
 
-    # recieve the request from client and decode it
-    request = client_socket.recv(1024).decode()
+    try:
+        # recieve the request from client and decode it
+        request = client_socket.recv(1024).decode()
 
-    if request == "":
+        if request == "":
+            client_socket.close()
+            return
+
+        print(request)
+
+        # parse the request and get segregated data (methods, version, headers, request-body, etc)
+        request_method, request_path, request_http_version, request_headers, request_body = get_segregated_data(client_socket, request)
+
+        # check/examine request for validation
+        response, response_body_size, is_valid = examine_request(request_method, request_http_version, request_headers)
+
+        if is_valid:
+            if request_method == "GET":
+                response = manage_GET(request_http_version, request_headers, request_path)
+            elif request_method == "HEAD":
+                response = manage_HEAD(request_http_version, request_headers, request_path)
+            elif request_method == "POST":
+                response = manage_POST(request_http_version, request_headers, request_path, request_body)
+            elif request_method == "PUT":
+                response = manage_PUT(request_http_version, request_headers, request_path, request_body)
+            elif request_method == "DELETE":
+                response = manage_DELETE(request_http_version, request_headers, request_path, request_body)
+        else:
+            create_access_log(request_method, request_path, request_http_version, request_headers, response_body_size)
+
+        #####################
+        # create the response
+        # response = manage_request(request)
+        #####################
+
+        # send the encoded response to client
+        client_socket.send(response)
+
+        # close the connection with the client
         client_socket.close()
-        return
-
-    print(request)
-
-    # parse the request and get segregated data (methods, version, headers, request-body, etc)
-    request_method, request_path, request_http_version, request_headers, request_body = get_segregated_data(client_socket, request)
-
-    # check/examine request for validation
-    response, is_valid = examine_request(request_method, request_http_version, request_headers)
-
-    if is_valid:
-        if request_method == "GET":
-            response = manage_GET(request_http_version, request_headers, request_path)
-        elif request_method == "HEAD":
-            response = manage_HEAD(request_http_version, request_headers, request_path)
-        elif request_method == "POST":
-            response = manage_POST(request_http_version, request_headers, request_path, request_body)
-        elif request_method == "PUT":
-            response = manage_PUT(request_http_version, request_headers, request_path, request_body)
-        elif request_method == "DELETE":
-            response = manage_DELETE(request_http_version, request_headers, request_path, request_body)
-
-    #####################
-    # create the response
-    # response = manage_request(request)
-    #####################
-
-    # send the encoded response to client
-    client_socket.send(response)
-
-    # close the connection with the client
-    client_socket.close()
-    print("Connection closed " + '*'*30 +"\n\n\n")
+        print("Connection closed " + '*'*30 +"\n\n\n")
+    except Exception as err:
+        create_error_log("error", err)
 
 
 def start_server(server_socket):
@@ -800,15 +980,16 @@ def start_server(server_socket):
 
                 # start the thread’s activity
                 client_th.start()
-
         except Exception as err:
-            # calling sys functions to get error details
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            print(exc_type)
-            print("Error occured in", fname, "at line no.", exc_tb.tb_lineno, ":")
-            print("\t", err)
-            sys.exit(1)
+            create_error_log("error", err)
+        # except Exception as err:
+        #     # calling sys functions to get error details
+        #     exc_type, exc_obj, exc_tb = sys.exc_info()
+        #     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        #     print(exc_type)
+        #     print("Error occured in", fname, "at line no.", exc_tb.tb_lineno, ":")
+        #     print("\t", err)
+        #     sys.exit(1)
         
         
 
@@ -821,9 +1002,13 @@ def create_server_socket():
     # here it is localhost
     # SERVER_NAME = ''
     # SERVER_PORT = 12001
-
-    SERVER_NAME = str(CONFIG_DATA['DEFAULT_VALS']['NAME'])
-    SERVER_PORT = int(CONFIG_DATA['DEFAULT_VALS']['PORT'])
+    try:
+        SERVER_NAME = str(CONFIG_DATA['DEFAULT_VALS']['NAME'])
+        SERVER_PORT = int(CONFIG_DATA['DEFAULT_VALS']['PORT'])
+    except Exception as err:
+        create_error_log("error", err)
+        print("Invalid data in config file")
+        sys.exit(1)
 
     try:
         # set the condition for port reusability whenever server is restarted
@@ -836,13 +1021,15 @@ def create_server_socket():
         server_socket.listen(1)
         print("Listening on port", SERVER_PORT)
     except Exception as err:
-        # calling sys functions to get error details
-        exc_type, exc_obj, exc_tb = sys.exc_info()
-        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-        print(exc_type)
-        print("Error occured in", fname, "at line no.", exc_tb.tb_lineno, ":")
-        print("\t", err)
-        sys.exit(1)
+        create_error_log("error", err)
+    # except Exception as err:
+    #     # calling sys functions to get error details
+    #     exc_type, exc_obj, exc_tb = sys.exc_info()
+    #     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    #     print(exc_type)
+    #     print("Error occured in", fname, "at line no.", exc_tb.tb_lineno, ":")
+    #     print("\t", err)
+    #     sys.exit(1)
     
     # return the server socket created
     return server_socket
@@ -851,19 +1038,26 @@ def read_config_file():
     global CONFIG_DATA
     # declare configparser object
     CONFIG_DATA = configparser.ConfigParser()
-    # read the config file
-    CONFIG_DATA.read('config.ini')
-
+    try:
+        # read the config file
+        CONFIG_DATA.read('config.ini')
+        clear_logs()
+    except Exception as err:
+        create_error_log("error", err)
+        sys.exit(1)
 
 if __name__ == "__main__":
+    try:
+        # read config file
+        read_config_file()
 
-    # read config file
-    read_config_file()
+        # make the server socket
+        server_socket = create_server_socket()
 
-    # make the server socket
-    server_socket = create_server_socket()
-
-    # start the server
-    start_server(server_socket)
-
+        # start the server
+        start_server(server_socket)
+    # when forcefully program execution is stopped using Ctrl+C key 
+    except KeyboardInterrupt:
+        print()
+        sys.exit(1)
     print(server_socket)
