@@ -1,0 +1,35 @@
+[
+    {
+        "method": "GET",
+        "url": "/"
+    },
+    {
+        "method": "HEAD",
+        "url": "/ipsum.html"
+    },
+    {
+        "method": "HEAD",
+        "url": "/form"
+    },
+    {
+        "method": "DELETE",
+        "url": "/Client_Folder/sample2.txt"
+    },
+    {
+        "method": "PUT",
+        "url": "/Client_Folder/some.txt",
+        "data": {
+            "name": "name",
+            "age": "20",
+            "email": "wakchauresr@gmail.com"
+        }
+    },
+    {
+        "method": "POST",
+        "url": "/",
+        "data": {
+            "name": "sanmeet",
+            "location": "pune"
+        }
+    }
+]
