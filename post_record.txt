@@ -1,0 +1,13 @@
+Date: Sun, 24 May 2026 11:38:59 GMT
+POST DATA:
+	name = name
+	age = 20
+	email = wakchauresr@gmail.com
+
+
+Date: Sun, 24 May 2026 11:38:59 GMT
+POST DATA:
+	name = sanmeet
+	location = pune
+
+
